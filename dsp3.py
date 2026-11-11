@@ -77,16 +77,6 @@ print(f"S: {len(S)} amostras | duração: {len(S) / fs} s")
 print(f"Nyquist: {fs / 2} Hz -> maior frequência do sinal: {max(f1, f2, f3)} Hz")
 print(f"Quantidade de períodos de cada senoide em 6 s: f1: {f1 * duracao} | f2: {f2 * duracao} | f3: {f3 * duracao}")
 
-# ---------------- Filtro FIR do exercício ----------------
-# Os coeficientes são simétricos: h(0) = h(11), h(1) = h(10), ..., h(5) = h(6)
-metade = [+0.54603280e-2, -0.45068750e-1, +0.69169420e-1,
-          -0.55384370e-1, -0.63428410e-1, +0.57892400e0]
-h = np.array(metade + metade[::-1])      # [::-1] inverte a lista
-print(f"\nFiltro FIR: {len(h)} coeficientes")
-print(f"h = {h}")
-
-y = convolucao(S, h)
-
 # ---------------- Senoides separadas e soma, em versão "contínua" ----------------
 # Simula o sinal contínuo com uma amostragem muito mais fina (1 MHz),
 # só para desenhar. As amostras reais de 8 kHz aparecem como pontos por cima.
@@ -131,6 +121,67 @@ freqs_unha, amp_unha = dft_amplitude(S[:N_trecho], fs)
 for f, a in zip(freqs_fft, amp_fft):
     if a > 0.1:#> 0.5:
         print(f"FFT:     {f:7.1f} Hz -> amplitude {a:.3f}")
+
+# ---------------- Filtro FIR do exercício ----------------
+"""
+# filtro pagina 13 nao eh esse que ele pediu
+# Os coeficientes são simétricos: h(0) = h(11), h(1) = h(10), ..., h(5) = h(6)
+metade = [+0.54603280e-2, -0.45068750e-1, +0.69169420e-1,
+          -0.55384370e-1, -0.63428410e-1, +0.57892400e0]
+h = np.array(metade + metade[::-1])      # [::-1] inverte a lista
+"""
+# filtro pagina 36 slide 72
+# especificacoes filtro FIR - window method
+# h = hD * w
+
+# passa - baixas 
+# hD[0] = 2*fc
+# hD[n] = 2*fc*sin(n*wc)/(n*wc), se  n!=0 
+
+# Stopband attenuation: > 50 dB
+
+# HAMMING WINDOW selecionado
+# w[n] = 0.54 + 0.46*cos(2*pi*n/N), n <= (N-1)/2
+# numero de coeficientes: N = 3.3 / delta_f
+
+freq_corte = 1500 # Hz
+#transition_width 
+delta_f= 500 # Hz
+sampling_frequency = 8000 # Hz
+
+delta_f_n = delta_f / sampling_frequency # normalized transition width
+N = int(np.ceil(3.3 / delta_f_n)) # number of coefficients  
+print(f"\nFiltro FIR:  sampling_frequency = {sampling_frequency} Hz | freq_corte = {freq_corte} Hz | delta_f = {delta_f} Hz")
+print(f"normalized transition width = {delta_f_n:.3f} | N = {N} coeficientes")
+
+# normalized cutoff frequency
+freq_corte_hD = (freq_corte + delta_f / 2) / sampling_frequency # Hz
+wc = 2 * np.pi * freq_corte_hD
+print(f"| normalized cutoff frequency = {freq_corte_hD:.3f}")
+
+# metade dos coeficientes
+hD = np.zeros(int((N-1)/2+1))
+w = np.zeros(int((N-1)/2+1))
+aux_h = np.zeros(int((N-1)/2+1))
+# coeficientes completos
+h = np.zeros(N)
+
+hD[0] = 2 * freq_corte_hD
+w[0] = 0.54 + 0.46 * np.cos(2 * np.pi * 0 / N)
+aux_h[0] = hD[0] * w[0]
+
+for n in range(1, int((N-1)/2)+1):
+    hD[n] = 2 * freq_corte_hD * np.sin(n * wc) / (n * wc)
+    w[n] = 0.54 + 0.46 * np.cos(2 * np.pi * n / N)
+    aux_h[n] = hD[n] * w[n]
+
+# pela propriedade de simetria do filtro FIR, basta calcular metade dos coeficientes e depois concatenar a outra metade invertida
+h = np.concatenate((aux_h[::-1], aux_h[1:])) 
+
+print(f"\nFiltro FIR: {len(h)} coeficientes")
+print(f"h = {h}")
+
+y = convolucao(S, h)
 
 # ---------------- Gráfico continuo ----------------
 fig, axs = plt.subplots(4, 1, figsize=(10, 9), sharex=True)
@@ -189,7 +240,7 @@ ty = np.arange(len(y)) / fs              # eixo de tempo da saída (s)
 th = np.arange(len(h)) / fs              # eixo de tempo do filtro (s)
 print(f"\nS: {len(S)} amostras | h: {len(h)} | y: {len(y)} amostras")
 
-n_ms = 10                                # mostra os primeiros 10 ms
+n_ms = 15                                # mostra os primeiros 15 ms
 nS = int(n_ms / 1000 * fs)               # 80 amostras
 
 fig, axs = plt.subplots(3, 1, figsize=(10, 9), sharex=True, sharey=True)
@@ -198,7 +249,7 @@ axs[0].plot(t[:nS] * 1000, S[:nS], "o-", markersize=3)
 axs[0].set_title("a) Sinal original S")
 
 axs[1].stem(th * 1000, h)
-axs[1].set_title("b) Filtro FIR h (resposta ao impulso, 12 coeficientes = 1,5 ms)")
+axs[1].set_title(f"b) Filtro FIR h (resposta ao impulso, {N} coeficientes)")
 
 axs[2].plot(ty[:nS] * 1000, y[:nS], "o-", markersize=3, color="tab:green")
 axs[2].set_title("c) Saída y = S * h")
@@ -210,7 +261,7 @@ for ax in axs:
 
 # Marcações: períodos de 4 ms em S; transiente + períodos de 4 ms em y
 T_S = 4                                   # período de S (ms)
-fim_trans = (len(h) - 1) / fs * 1000      # 11 amostras = 1,375 ms
+fim_trans = (len(h) - 1) / fs * 1000      
 axs[0].axvspan(0, T_S, color="gold", alpha=0.2, label="1º período (4 ms)")
 axs[0].axvspan(T_S, 2 * T_S, color="tab:orange", alpha=0.15, label="2º período (4 ms)")
 axs[2].axvspan(0, fim_trans, color="tab:red", alpha=0.2, label=f"transiente ({len(h) - 1} amostras)")
